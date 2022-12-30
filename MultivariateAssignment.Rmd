@@ -1,0 +1,377 @@
+---
+title: "Multivariate Analysis Project"
+author: "Gavin Connolly"
+date: "22/03/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library('e1071')
+library('pls')
+library("matlib")
+```
+
+The initial columns in the dataset contain details (i.e. covariates) of the cows which produced the milk samples and the protein and technological traits of the milk samples measured in the laboratory.
+The data in the final 531 columns are the MIR spectra, with the first row of these columns detailing the wavenumber (measured in cm−1).
+The spectral values in the dataset are the absorbance values (the log10 of the reciprocal of the transmittance value). The water region has been removed.
+
+## Question 1
+
+Load the data set into R. Use the set.seed function in R to set the seed to your student number.
+Randomly generate a number between 1 and n (where n is the number of rows in the dataset), and
+delete that observation/row from the dataset. Ensure that you include the code used in this step in the
+R code associated with your assignment.
+
+```{r Q1}
+data = read.csv("Milk_MIR_Traits_data.csv")
+# Set seed to student number
+set.seed(18308483)
+n = nrow(data)
+#generate random number between 1 & n
+rdm_number = sample(1:n, 1)
+data <- data[-rdm_number,] # delete row number from dataset
+n = n-1
+```
+
+## Question 2
+
+Visualise the spectra and the protein trait $\alpha_{s1}$-casein using (separate) suitable plots.
+Comment on the plots.
+Remove any observations with $\alpha_{s1}$-casein outside of 3 standard deviations from the mean of the trait.
+
+#### Visualisation of Spectra:
+
+There is too much data associated with the spectra to simply plot each of the values for each observation, so instead we examine the means & standard deviations of the variable instead.
+
+```{r Q2 - Plots}
+ncol(data)
+spectra <- data[,52:582] # last 531 columns correspond to spectral readings
+
+# plot column means of spectral values to get idea of their distribution
+plot(colMeans(spectra), pch = 20, col = 4,
+    xlab = 'Spectral Values', ylab = "Column Means of Spectral Values")
+# plot column standard deviations of spectral values
+plot(apply(spectra, 2, sd),  pch = 20, col = 8,
+     xlab = 'Spectral Values', ylab = "Column sds of Spectral Values")
+```
+
+We see from the above plots that there appears to be a pattern within the spectral values, in that variables with higher means also seem to have a higher standard deviation, while variables with a lower mean have a lower standard deviation. It is also appears that there roughly 3 periods of relatively high variability/mean, interspersed between 2 periods of relatively low variability/mean.
+
+#### Visualisation of $\alpha_{s1}$-Casein:
+
+```{r Q2 - Removing Outliers}
+# 9th column corresponds to measurements of alphas1-casein
+alphas1 <- data[,9]
+plot(alphas1, pch = 20, main = 'alphas1-casein values') # large portion of missing data apparent in plot
+# remove observations which have no value for alphas1-casein
+cdata <- subset(data, !is.na(alphas1))
+
+# calculate standard deviation of alphas1-casein observations
+sd_as1 = sqrt(var(cdata[,9]))
+# set upper/lower bounds for data to be used in our analysis
+sd_up <- mean(cdata[,9]) + 3*sd_as1
+sd_down <- mean(cdata[,9]) - 3*sd_as1
+
+which(cdata[,9] > sd_up) # observations 71, 73 & 81 are 3 sds higher than mean
+which(cdata[,9] < sd_down) # no observations are 3 sds lower than mean
+cdata <- cdata[-which(cdata[,9] > sd_up), ] #remove observations which are over 3 sds from eman
+# plot alphas1-casein data without the removed values
+plot(cdata$alpha_s1_casein, pch = 20, main = 'alphas1-casein values')
+```
+
+Upon observation of the above plot, we see that large proportion of missing values are apparent in the plot of the $\alpha_{s1}$ Casein values. As these observations will not be of much value in predicting the values of the variable of interest, I decided to remove them from our dataset before proceeding with the remainder of our investigation.
+We also remove any observations of the $\alpha_{s1}$ Casein values which is outside 3 standard-deviations of the mean value, as stated in the question. The plot of the $\alpha_{s1}$ Casein values without the removed observations is as follows:
+
+## Question 3
+
+Use hierarchical clustering and k-means clustering to determine if there are clusters of similar MIR spectra in the data. 
+Motivate any decisions you make.
+Compare the hierarchical clustering and k-means clustering solutions.
+Comment on/explore any clustering structure you uncover, considering the data-generating context.
+
+```{r Q3 - Hierarchical Clustering}
+spectra <- as.matrix(cdata[,52:582])
+sc_spectra <- scale(spectra)
+
+# Hierarchical Clustering
+# compare average linkage & complete linkage solutions
+cl.average = hclust(dist(sc_spectra, method = 'euclidean'), method="average")
+plot(cl.average, labels = FALSE) # Looks to be roughly 6 clusters
+hcl.average = cutree(cl.average, k = 6)
+table(hcl.average) # average linkage creates 2 large clusters as well as many smaller clusters
+```
+
+Based on the above dendrogram I decided on a 6-cluster solution for average-linkage, as this seemed to provide a decent set of clusters, while also keeping the number of clusters relatively low for ease of interpretation of our results. We see from the table of clusters, that this approach resulted in one very large cluster, followed by a number of much smaller clusters. The following plots examine this clustering solution against various metrics of interest, the means of the spectral data & the standard deviations of the spectral data.
+
+```{r Q3 - Plot Average-linkage hierarchical clustering solution}
+plot(cdata[,9], col = hcl.average, pch = 20,
+     xlab = 'Spectral Values', ylab = 'alphas1 values')
+plot(colMeans(spectra), col = hcl.average, pch = 20,
+     xlab = 'Spectral Values', ylab = 'Column means of spectral values')
+plot(apply(spectra, 2, sd), col = hcl.average, pch = 20,
+     xlab = 'Spectral Values', ylab = 'Column sds of spectral values')
+# average linkage gives us one very big cluster with lots of smaller ones which is not ideal
+```
+
+Overall, based on the above information, I do not feel that the average-linkage approach has provided a particularly good clustering solution, as it is not really apparent from any of the plots that the observations within each cluster behave in similar ways.
+The solution seems to have mostly classed the observations with particularly high standard deviation on the left-hand side of the plot of spectral values vs standard deviations within the same cluster, but overall, it does not appear that the observations in each cluster are particularly similar, and more importantly there is not much evidence that the observations in different clusters are very dissimilar.
+In addition to this, the fact that the solution puts so many of the observations in one cluster, and so few in each of the other clusters is a cause of concern.
+
+```{r Q3 - Complete Clustering}
+cl.complete = hclust(dist(sc_spectra, method = 'euclidean'), method="complete")
+plot(cl.complete, labels = FALSE) 
+# dendrogram for complete linkage looks much better
+hcl.complete = cutree(cl.complete, k = 5) # seems to roughly  main clusters in data
+table(hcl.complete)
+```
+
+For the complete-linkage solution, we obtain a solution which certainly seems a lot less “stringy” than the average-linkage approach, with a lot more even a distribution of observations between each cluster. Based on the above dendrogram, I decided to cut the tree into 5 separate clusters. The complete-linkage approach provides two large clusters of roughly equal size, one medium sized cluster, as well as 2 smaller clusters. Again, we examine the clustering solution against the same metrics of interest we compared the average linkage solution.
+
+```{r Q3 - Plot Complete Clustering solution}
+plot(cdata[,9], col = hcl.complete, pch = 20,
+     xlab = 'Spectral Values', ylab = 'alphaS1 values')
+plot(colMeans(spectra), col = hcl.complete, pch = 20,
+     xlab = 'Spectral Values', ylab = 'Column means of spectral values')
+plot(apply(spectra, 2, sd), col = hcl.complete, pch = 20,
+     xlab = 'Spectral Values', ylab = 'Column sds of spectral values')
+```
+
+Once again, the clustering pattern is not particularly apparent within any of the plots, though the solution does seem to have grouped together most of the MIR spectra with particularly high mean & standard deviation into the same clusters, but it is quite difficult to tell if the solution is classing the other MIR spectral in groups which are highly dissimilar.
+
+```{r Q3 - Compare class agreement}
+table(hcl.average, hcl.complete)# clustering methods seem to be giving similar solutions
+classAgreement(table(hcl.average, hcl.complete))
+```
+
+The adjusted Rand index measuring the strength of the class agreement between each of the 2 solutions is 21.95% indicating that while there is some agreement between them, the solutions do not agree particularly strongly when accounting for random chance.
+
+Overall, while neither solution is really ideal, I decided to go with the average-linkage solution as our hierarchical clustering method, due to the fact that it provides us with more evenly distributed groups & seems to be a bit more powerful a predictor of similarity of the MIR spectra.
+
+```{r Q3 K-means Clustering}
+WGSS = rep(0, 20)
+n = nrow(sc_spectra)
+WGSS[1] = (n-1)*sum(apply(spectra, 2, var))
+for (k in 2:20) {
+  WGSS[k] = sum(kmeans(spectra, centers = k)$withinss)
+}
+plot(1:20, WGSS, pch = 20, type = 'b', xlab = 'k', ylab = 'within group sum of squares', 
+     main = 'WGSS vs number of clusters')
+# Choosing k = 4 for our number of centres, seems optimal as it provides us with a low within group sum of squares without letting number of clusters grow too large 
+k = 4
+cl.kmeans = kmeans(spectra, centers = k)
+```
+
+A 4-means clustering solution appears to be optimal from the above graph of the Within Group Sum of Squares as it appears at the elbow of the graph. This means that it provides a relatively low sum of squares, indicating that the observations within each group are quite similar, while also not including too many groups within our solution, which will aid interpretation.
+
+```{r Q3 - Plot Clustering solution}
+plot(cdata[,9], pch = 20, col = cl.kmeans$cluster)
+plot(colMeans(spectra), pch = 20, col = cl.kmeans$cluster)
+plot(apply(spectra,2,sd), pch = 20, col = cl.kmeans$cluster)
+```
+
+Looking at the graphs, we observe a solution which seems to perform similarly to the hierarchical solutions calculated previously, with the solution seemingly classifying high mean/standard deviation MIR spectra relatively well, but with it not being particularly obvious that the classification is as successful for other ranges of MIR spectra.
+
+```{r Q3 - Compare Class agreement between hierarchical & K-Means solutions}
+tab <- table(hcl.complete, cl.kmeans$cluster)
+classAgreement(tab) # seems to be some agreement between solutions, but agreement not particularly strong
+```
+
+#### Comparison
+
+The performance of each clustering method appears to be relatively similar, with it not being particularly clear that either method really provides a very high degree of classification efficiency on our MIR spectra. 
+On examining the level of agreement between the two methods, we see that the solutions agree on the classification 31.68% of the MIR spectra giving them an adjusted Rand index of 26.42%, which indicates that the solutions are quite similar, & the level of agreement between each solution is decently strong, even when accounting for agreement due to random chance.
+We also note that the adjusted Rand index is higher between these two solutions than it was between the initial two hierarchical models.
+
+## Question 4
+
+Apply principal components analysis to the spectra, motivating any decisions you make in the process.
+Plot the cumulative proportion of the variance explained by the first 10 principal components.
+How many principal components do you think are required to represent these data? Explain your answer.
+
+Prior to the Principal Components Analysis, I decided to scale my data on the MIR spectra, though as all of the MIR values are measured using the same units (cm-1), I note that this may not be strictly necessary.
+
+The plot of the cumulative variance explained by the first 10 Principal Components is as follows:
+
+```{r Q4 - PCA}
+fit <- prcomp(spectra, scale = TRUE)
+CPV <- summary(fit)$importance[3,1:10]
+plot(CPV, type = "b", pch = 20, col = 4,
+     xlab = "Principal Components", ylab = "Cumulative Proportion of Variance",
+     main = 'Plot of Cum. Prop. of Var. explained by No. of Components')
+
+# Pretty much all of the variance explained by the first 4 principal components (over 99%) 
+# with only marginally more variance explained by additional PCs
+```
+We see from the above, that practically all of the variation in the MIR spectra are explained by the first 4 Principal Components, indicating that just 4 Principal Components are required to represent the data. We therefore continue our analysis while only considering these 4 Principal Components.
+
+## Question 5
+
+Derive the principal component scores for the milk samples from first principles (i.e. you should not use an inbuilt function such as predict(...)). 
+Plot the principal component scores for the milk samples. 
+Comment on any structure you observe.
+
+We calculate the first 4 Principal Components from first principles as follows:
+
+```{r Q5 - PCA Calaulation}
+sc_spectra <- scale(spectra)
+cov_spectra <- cov(sc_spectra)
+eigen_spectra <- eigen(cov_spectra)
+evect_spectra <- eigen_spectra$vectors
+eval_spectra <- eigen_spectra$values
+# Check Principal Components are same as those calculated in Q4
+CPV_1 <- matrix(data = NA, nrow = 1, ncol = 10)
+for (i in 1:10) {
+  CPV_1[i] <- sum(eval_spectra[1:i]/sum(eval_spectra))
+}  
+rbind(CPV, CPV_1)
+```
+
+```{r Q5 - PCA Explained variance}
+# Check sum of eigenvalues equal to sum of variances
+sum(apply(sc_spectra, 2, var))
+sum(eval_spectra)
+```
+
+```{r Calculate PC Scores}
+# Calculate PC scores for each of the first 4 Principal Components
+Y_PC <- matrix(data = NA, nrow = nrow(spectra), ncol = 4)
+for(i in 1:nrow(spectra)){
+  for (j in 1:4) {
+    Y_PC[i, j] = evect_spectra[,j]%*%sc_spectra[i,] 
+  }
+}
+
+colMeans((Y_PC-fit$x[,1:4])) # calcuated PC scores are same as outputted from prcomp
+pairs(Y_PC, col = cl.kmeans$cluster, main = 'Pairs of 1st 4 PC Scores coloured by k-means cluster')
+```
+
+*This method can easily be expanded to calculate each of the Principal Components by adjusting the j value in our loop, however, in this instance it is only really necessary to calculate the first 4.
+
+In order to get a better idea as to the underlying clustering structure within the data, I prepared a pairs plot for each of the first 4 principal components and coloured each point based on the clustering group assigned via the k-means algorithm.
+
+```{r Q4 - Pairs plot}
+pairs(fit$x[,1:4], col = cl.kmeans$cluster)
+```
+
+We observe two principal clusters within pairs plots, which our k-means solution seems to do a decent job in determining between, with the small cluster of outlying data all classified within the blue cluster, with the remaining 3 clusters within our k-means solution seeming to be grouped with other observations within their cluster, particularly for the 1st 2 Principal Components which explain over 80% of the variation in the MIR spectra, indicating that the clusters are in fact quite similar to each other.
+
+## Question 6
+
+Interest lies in predicting the level of the protein $\alpha_{s1}$-casein in a milk sample using MIR spectra.
+Principal components regression (PCR) and partial least squares regression (PLSR) are two approaches to doing so for these data. Research these methods and how they work e.g. see An Introduction to Statistical Learning with Applications in R by James et al. (2017), The Elements of Statistical Learning by Hastie et al. (2017) as detailed in the module’s list of references, and/or the peer-reviewed journal article The pls Package: Principal Component and Partial Least Squares Regression in R by Mevik and Wehrens (2007).
+In your own words, write a maximum 1 page synopsis of the PCR and PLSR methods.
+Your synopsis should (i) explain the methods’ purposes, (ii) provide general descriptions of how the methods work, (iii) detail any choices that need to be made when using the methods and (iv) outline the advantages and disadvantages of the methods.
+
+Both Principal Components Regression (PCR) & Partial Least Squares Regression (PLSR) are regression techniques which seek to regress some predictor variable(s), \textbf{Y}, on some high dimensional set of predictor variables, \textbf{X}. Each method uses a form of Principal Components Analysis (PCA) in order to construct an orthogonal co-ordinate system based on the directions upon which the variability of our data is greatest, in order to reduce the dimensionality of the dataset. This can lead to better performance for the model as fitting to lower dimensional data will mean there are less coefficients to estimate & thus, we can mitigate the effects of overfitting on a small set of observations & have lower variance associated with each of our estimates.
+
+The primary difference between PCR & PLSR is that PCR uses an unsupervised method of dimension reduction which only uses the predictor variables \textbf{X} to perform dimension reduction, whereas PLSR uses a supervised approach, which considers the correlation between the predictor & response variables, in identifying the features of the data which best explain the response variables. Typically, in both PCR & PLSR the predictor variables are standardized prior to regression analysis so that high variability in variables due to differences in units for measurements, etc. do not lead to an undue amount of importance being given to variables; though one may choose to forgo standardizing the data if there is reason to believe the variability of the predictor variables is a measure of its importance in estimating the response. Another choice which must be made is deciding upon how many components we include within our model. This is usually doing via cross-validation, with the model which performs the best in predicting the response variables on the cross-validation sets using the least number of components typically being optimal.
+
+For PCR, we first calculate the principal components of our predictor variable matrix $\textbf{X_{nxp}}$ by obtaining the sample covariance matrix $\textbf{S_{pxp}}$ and calculating the eigenvalues & corresponding eigenvalues (ordered by magnitude of the eigenvalue). We then choose some m << p, such that the first m principal components explain a suitably large proportion of the variance of our data \textbf{X} (proportion of variance explained by i$^{th}$ eigenvector is simply given by the i$^{th}$ eigenvalue \lambda_i divided by the sum of all eigenvalues). We then perform ordinary least squares regression on the first m principal components, to construct a regression model with m parameters.
+
+In PLSR, we take an iterative approach to reducing the dimensionality of our data. We do this by first finding the cross-product of the predictor & response variables & finding the singular value decomposition (SVD) of the resulting matrix. We can then use the each of the left singular vector of this decomposition as a weight vector for the predictor variables, to give us \textbf{X} scores for each observation, which we store as the vector t. At this point it is good practice to normalise these \textbf{X} scores, before proceeding. We then calculate loadings for each of the predictor/response variables \textbf{X} & \textbf{Y} (calling the loadings p & q respectively), by regressing each on the vector of \textbf{X} scores, t. We then deflate our data in other to remove variation in the data explained by the components we have already calculated, i.e. to ensure each component is orthogonalized. We do this by subtracting the product of the \textbf{X} scores & the loadings for each variable from the corresponding matrices \textbf{X} & \textbf{Y}. We then repeat the process for the new deflated data matrices, each vector w, p, t & q for each iteration as the columns of 4 matrices \textbf{W}, \textbf{P}, \textbf{T} & \textbf{Q}. We can then calculate regression coefficients for our model \textbf{B}, as the following matrix product: $B = W\left(P^TW\right)^{-1}Q^T$
+
+One potential advantage that PLSR has over PCR is that as PCR does not use the response variables Y in determining the principal components, there is no guarantee that the directions obtained are best for explaining variance in the response variables, whereas PLSR seeks out the variables which are most highly correlated with the response, however, in practice, both methods achieve similar predictive performance in most cases.
+
+## Question 7
+
+Use e.g. the pls R package to use PLSR to predict the $\alpha_{s1}$-casein trait for a test set of the MIR data provided, where the test set is one third of the original data. Motivate any decisions you make.
+
+We use the pls function to predict the alpha-S1 Casein trait for a test set of the MIR data using the following code:
+
+```{r Q7 - Set up data}
+alphas1 <- cdata[,9]
+plsr_data <- cbind(alphas1, spectra)
+plsr_data <- as.data.frame(plsr_data)
+train <- sample(1:nrow(plsr_data), 2/3*nrow(plsr_data), replace = FALSE)
+```
+
+```{r Q7 - Fit model}
+plsr.fit <- plsr(alphas1~., ncomp = 10, data = plsr_data, subset = train, scale = FALSE, validation = 'CV')
+summary(plsr.fit) # Lowest adjusted Cross-Validation error for 5 component model
+# Model explains 59.5% of the variance in Y & 98.6% of variation in X
+# Predict alphas1-casein levels using the 5 component model
+pred_test <- predict(plsr.fit, newdata = plsr_data[-train,], ncomp = 5)
+# Examine performance of model
+#plot(pred_test-plsr_data[-train,]$alphas1, pch = 20, ylab = 'Difference between Fitted & Actual Values') # errors seem to be distributed with mean 0
+mean((pred_test-plsr_data[-train,]$alphas1)^2) # relatively low mean squared error on our test set
+```
+
+```{r Q7 - plot}
+plot(alphas1[-train], pred_test, pch = 20, main = 'Plot of Fitted vs Actual Values', 
+     xlab = 'Actual alphas1-casein values', ylab = 'Predicted alphas1-casein values')
+# model seems to do a decent job in estimating alphas1-casein levels
+```
+
+I first selected a random sample, two thirds the size of the total dataset, to be our training data; with the remaining one third acting as our test data for which we will be predicting the $\alpha_{S1}$ Casein levels.
+I decided to use unscaled data in my fitting of the model here, because, as mentioned before, scaling the data in this instance is not really necessary, as all of the MIR spectra are measured in the same units.
+I used Cross-Validation validate the model, as I felt that seeing as the dataset is relatively large, using leave-one-out validation would be too computationally inefficient.
+
+I chose to conduct our predictions using a 5-component model as this had the lowest adjusted Cross-Validation error except for the 8-component model, which I felt included too many components which may make the model susceptible from suffering from a large amount of generalization error when used as a prediction tool on new, previously unseen data.
+The 5-component model on the other hand should be less susceptible to overfitting on our training data.
+
+## Question 8 
+
+Perform the previous question again, but using your own code and from first principles, rather than using the pls function. 
+The peer-reviewed journal article The pls Package: Principal Component and Partial Least Squares Regression in R by Mevik and Wehrens (2007), and/or the other references mentioned in question 6, may be useful here.
+Use plots and summaries where relevant to assist in your analysis.
+You may use functions such as svd and/or lm if you wish, but not necessarily.
+
+I calculated the Partial Least Squares Regression model from first principles, and use this to predict the $\alpha_{S1}$ Casein levels of the test data using the following code:
+
+```{r Q8 - PSLR from first princiapals}
+plsr_train_X <- as.matrix(spectra[train,])
+plsr_test_X <- as.matrix(spectra[-train,])
+
+X <- plsr_train_X
+Y <- alphas1[train]
+m = 6 # Set number of components we wish to include
+
+W <- matrix(data = NA, nrow = ncol(spectra), ncol = m)
+T <- matrix(data = NA, nrow = nrow(plsr_train_X), ncol = m)
+P <- matrix(data = NA, nrow = ncol(spectra), ncol = m)
+Q <- matrix(data = NA, nrow = 1, ncol = m)
+
+E <- X
+F <- Y
+for (i in 1:m) {
+  #print(i)
+  # Get SVD of S
+  S = t(E)%*%F
+  svd_S <- svd(S)
+  # Define w/q as the left/right singular vectors
+  w <- svd_S$u
+  # Define t & normalise it
+  t <- E%*%w
+  t <- t/as.vector(sqrt(t(t)%*%t))
+  # define p.q
+  p <- t(E)%*%t
+  q <- t(F)%*%t
+  # Deflate data to remove info relating to previous latent variable
+  E <- E-t%*%t(p)
+  F <- F-t%*%t(q)
+  # Store each of w,t,p & q as a column of relevant matrix
+  W[,i] <- w
+  T[,i] <- t
+  P[,i] <- p
+  Q[,i] <- q
+}
+
+#Calculate Regression Coefficients
+R <- W%*%inv(t(P)%*%W)
+B <- R%*%t(Q)
+
+# Predict the alphas1-casein values of the test set
+# Multiply scaled data by regression coefficients & add on mean of training data
+pred2_test <- plsr_test_X%*%B
+```
+
+Plotting the fitted values using the model from first principles (light red/pink circles) as well as the fitted values using the “plsr” function calculated in Q7 (dark red squares) vs. the actual alpha-S1 Casein values we get the following graph:
+
+```{r Q8 - Plot fitted values from first principals vs actual}
+# Plot fitted values vs actual test alphas1-values
+plot(alphas1[-train], pred2_test, pch = 15, col = '#a60a0a', main = 'Fitted vs Actual Values', xlab = 'actual alphas1-casein values', ylab = 'Fitted values')
+points(alphas1[-train], pred_test, pch = 20, col = '#fa4b4b')
+# We see both predictions give the same estimates for alphas1-casein level
+```
+
+We can see from the above, that the two models are equivalent.
